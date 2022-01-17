@@ -1,0 +1,111 @@
+#include "mpi.h"
+#include <iostream>
+#include <algorithm>
+#include <thread>
+#include <deque>
+#include <mutex>
+#include <vector>
+#include <atomic>
+#include <Windows.h>
+
+using namespace std;
+
+const int COUNT = 100000;
+
+
+bool isPrime(int& value)
+{
+	int divider = 2;
+	bool flag = true;
+	while (divider < value - 1 && flag) {
+		flag = value % divider != 0;
+		divider++;
+	}
+	return flag;
+}
+
+void findCount(int* array, int start, int end, int& count)
+{
+
+	int localCount = 0;
+	for (int i = start; i < end; i++) {
+		if (isPrime(array[i])) {
+			localCount++;
+		}
+	}
+	count = localCount;
+}
+
+void NonParallelTask(int* arr)
+{
+	int localCount = 0;
+
+	for (int i = 0; i < COUNT; i++) {
+		if (isPrime(arr[i])) {
+			localCount++;
+		}
+	}
+
+	printf("Found %d prime numbers\n", localCount);
+}
+void init(int* arr) {
+	srand(time(NULL));
+	for (int i = 0; i < COUNT; i++)
+		arr[i] = 1 + rand() % 10000;//1000
+}
+void print(int* arr) {
+	for (int i = 0; i < COUNT; i++)
+		std::cout << arr[i] << " ";
+	std::cout << std::endl;
+}
+
+int main(int argc, char* argv[])
+{
+	int count = 0,localCount;
+	int arr[COUNT];
+	init(arr);
+	srand(time(0));
+	NonParallelTask(arr);
+
+	cout << "Nonparallel time: " << clock() / 1000.0 << endl;
+
+	MPI_Init(&argc, &argv);
+	MPI_Status status;
+	double start = MPI_Wtime();
+
+	int threadCount;
+	MPI_Comm_size(MPI_COMM_WORLD, &threadCount);
+	int threadIndex;
+	MPI_Comm_rank(MPI_COMM_WORLD, &threadIndex);
+	MPI_Bcast(arr, COUNT, MPI_BYTE, 0, MPI_COMM_WORLD);
+	if (threadIndex != 0) {
+		int k = COUNT / (threadCount-1);
+		int i1 = k * (threadIndex-1);
+		int i2 = k * (threadIndex);
+		
+		if (threadIndex == threadCount - 1) { i2 = COUNT; }
+		//cout <<"threadIndex "<< threadIndex << ", i1 " << i1 << ", i2 " << i2 << endl;
+		findCount(arr, i1, i2, localCount);
+		//cout << localCount << endl;
+		MPI_Send(&localCount, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+	}
+	else {
+		//print(arr);
+		count = 0;
+		for (size_t i = 1; i < threadCount; i++)
+		{
+			MPI_Recv(&localCount, 1, MPI_INT, MPI_ANY_SOURCE,
+				0, MPI_COMM_WORLD, &status);
+			//cout << localCount << endl;
+			count += localCount;
+		}
+		cout << "Total prime cout: " << count << endl;
+	}
+		
+
+			double end = MPI_Wtime();
+		
+		MPI_Finalize();
+		printf("The process took %lf seconds to run.\n", end - start);
+		return 0;
+}
